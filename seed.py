@@ -3,7 +3,7 @@
 # Seed default users (Admin & Staff)
 # ------------------------------
 from db import SessionLocal
-from models import User, Capstone
+from models import User
 
 def seed_default_users():
     db = SessionLocal()

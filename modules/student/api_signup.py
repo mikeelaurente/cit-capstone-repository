@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
 from db import get_db
 from dtos import StudentSignupRequest
-from models import Student, EmailVerification
+from models import Student, EmailVerification, User
 from helpers.password import hash_password
 from helpers.email_helper import generate_verification_code, send_verification_email, get_verification_expiry
 import re
@@ -26,9 +26,9 @@ def register_api_signup_route(app: FastAPI):
                 detail="Password must be at least 8 characters long"
             )
         
-        # Check if email already exists
-        existing_student_email = db.query(Student).filter(Student.email == request.email).first()
-        if existing_student_email:
+        # Check if email already exists (in User table for students)
+        existing_user = db.query(User).filter(User.email == request.email).first()
+        if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
         
         # Check if student number already exists
@@ -42,14 +42,24 @@ def register_api_signup_route(app: FastAPI):
         # if not request.email.endswith("@cbsua.edu.ph"):
         #     raise HTTPException(status_code=400, detail="Must use institutional email")
         
-        # Create student account
+        # Create User account first
         hashed_password = hash_password(request.password)
+        new_user = User(
+            email=request.email,
+            password=hashed_password,
+            role="Student"
+        )
+        
+        db.add(new_user)
+        db.flush()  # Flush to get the user ID without committing
+        
+        # Create Student profile linked to User
         new_student = Student(
+            user_id=new_user.id,
             full_name=request.full_name,
             student_number=request.student_number,
             email=request.email,
             year=request.year,
-            password=hashed_password,
             is_verified=False
         )
         
@@ -77,3 +87,4 @@ def register_api_signup_route(app: FastAPI):
             "student_id": new_student.id,
             "email": new_student.email
         }
+

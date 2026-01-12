@@ -13,9 +13,9 @@ from helpers.password import verify_password
 
 
 class LoginRequest(BaseModel):
-    identifier: str  # username/email for admin, student_number/email for student
+    identifier: str  # email for admin/staff, student_number/email for student
     password: str
-    type: str  # "student" or "admin"
+    type: str  # "student", "admin", or "staff"
 
 
 def register_api_login_route(app: FastAPI):
@@ -24,26 +24,32 @@ def register_api_login_route(app: FastAPI):
         request: LoginRequest,
         db: Session = Depends(get_db)
     ):
-        valid_types = ["student", "admin"]
+        valid_types = ["student", "admin", "staff"]
         
         if request.type not in valid_types:
-            raise HTTPException(status_code=400, detail="Invalid login type. Must be 'student' or 'admin'")
+            raise HTTPException(status_code=400, detail="Invalid login type. Must be 'student', 'admin', or 'staff'")
         
-        if request.type == "admin":
-            return admin_login(db, request.identifier, request.password)
+        if request.type in ["admin", "staff"]:
+            return admin_login(db, request.identifier, request.password, request.type)
         else:
             return student_login(db, request.identifier, request.password)
 
 
-def admin_login(db: Session, identifier: str, password: str):
+def admin_login(db: Session, identifier: str, password: str, login_type: str = "admin"):
     """Handle admin/staff login"""
     user = authenticate_user(db, identifier, password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Validate user role matches login type
+    if login_type == "admin" and user.role != "Admin":
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    elif login_type == "staff" and user.role != "Staff":
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
     access_token_expires = timedelta(minutes=AuthConfig.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.email, "role": user.role},
+        data={"sub": user.email, "role": user.role, "user_id": user.id},
         expires_delta=access_token_expires
     )
 
@@ -79,8 +85,8 @@ def student_login(db: Session, identifier: str, password: str):
     if not student:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    # Verify password
-    if not verify_password(password, student.password):
+    # Verify password from User table
+    if not verify_password(password, student.user.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     # Check if account is verified
@@ -95,8 +101,8 @@ def student_login(db: Session, identifier: str, password: str):
     access_token = create_access_token(
         data={
             "sub": student.email,
-            "role": "student",
-            "student_id": student.id,
+            "role": "Student",
+            "user_id": student.user_id,
             "student_number": student.student_number
         },
         expires_delta=access_token_expires

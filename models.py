@@ -16,19 +16,21 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False)
     role = Column(String, default="Staff")
+    
+    student: Mapped[Optional["Student"]] = relationship(back_populates="user", uselist=False)
 
 class Student(Base):
     __tablename__ = "students"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     full_name: Mapped[str] = mapped_column(String, nullable=False)
     student_number: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
     email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
-    password: Mapped[str] = mapped_column(String, nullable=False)
     year: Mapped[str] = mapped_column(String, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Integer, default=0)  # SQLite uses 0/1 for bool
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
-    submissions: Mapped[List["Submission"]] = relationship(back_populates="student", cascade="all, delete-orphan")
+    user: Mapped["User"] = relationship(back_populates="student")
 
 class EmailVerification(Base):
     __tablename__ = "email_verifications"
@@ -46,19 +48,6 @@ class PasswordReset(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-class Submission(Base):
-    __tablename__ = "submissions"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))
-    project_id: Mapped[Optional[int]] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
-    status: Mapped[str] = mapped_column(String, default="pending")  # pending, approved, rejected
-    submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
-    student: Mapped["Student"] = relationship(back_populates="submissions")
-    project: Mapped[Optional["Project"]] = relationship()
-
 class Project(Base):
     __tablename__ = "projects"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -70,12 +59,22 @@ class Project(Base):
     abstract: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     status: Mapped[str] = mapped_column(String, default="pending")  # pending, approved, rejected
+    
+    # Link to user (student or admin/staff who uploaded)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # DOCX metadata fields
     course: Mapped[Optional[str]]   = mapped_column(String, nullable=True)
     host: Mapped[Optional[str]]     = mapped_column(String, nullable=True)
     doc_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
+    # Relationships
+    uploaded_by: Mapped["User"] = relationship(foreign_keys=[user_id])
+    reviewed_by: Mapped[Optional["User"]] = relationship(foreign_keys=[reviewer_id])
     authors:  Mapped[List["Author"]]         = relationship(back_populates="project", cascade="all, delete-orphan")
     sections: Mapped[List["Section"]]        = relationship(back_populates="project", cascade="all, delete-orphan")
     chunks:   Mapped[List["Chunk"]]          = relationship(back_populates="project", cascade="all, delete-orphan")

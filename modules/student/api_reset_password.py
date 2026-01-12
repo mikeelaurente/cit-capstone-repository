@@ -49,8 +49,8 @@ def register_api_reset_password_route(app: FastAPI):
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
-        # Update password
-        student.password = hash_password(request.new_password)
+        # Update password in User table
+        student.user.password = hash_password(request.new_password)
         
         # Delete reset token
         db.delete(reset_token)

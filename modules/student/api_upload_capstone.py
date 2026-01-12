@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request
 from sqlalchemy.orm import Session
 from db import get_db
-from models import Student, Submission, Project, Author
+from models import Student, Project, Author
 from helpers.session import get_current_user_jwt
 from helpers.docx_parser import parse_compilation_docx
 from config import PathConfig
@@ -16,15 +16,10 @@ def register_api_upload_capstone_route(app: FastAPI):
         claims = Depends(get_current_user_jwt)
     ):
         # Check authentication
-        if not claims or claims.get("role") != "student":
+        if not claims or claims.get("role") != "Student":
             raise HTTPException(status_code=401, detail="Not authenticated as student")
         
-        student_id = claims.get("student_id")
-        
-        # Verify student exists
-        student = db.query(Student).filter(Student.id == student_id).first()
-        if not student:
-            raise HTTPException(status_code=404, detail="Student not found")
+        user_id = claims.get("user_id")
         
         # Validate file type
         if not file.filename.endswith('.docx'):
@@ -36,19 +31,16 @@ def register_api_upload_capstone_route(app: FastAPI):
         # Generate file hash
         file_hash = hashlib.sha256(content).hexdigest()
         
-        # Check if file already exists
-        existing_project = db.query(Project).filter(Project.sha256 == file_hash).first()
+        # Check if this student already submitted this file
+        existing_project = db.query(Project).filter(
+            Project.sha256 == file_hash,
+            Project.user_id == user_id
+        ).first()
         if existing_project:
-            # Check if this student already submitted this
-            existing_submission = db.query(Submission).filter(
-                Submission.student_id == student_id,
-                Submission.project_id == existing_project.id
-            ).first()
-            if existing_submission:
-                raise HTTPException(
-                    status_code=400, 
-                    detail="You have already submitted this capstone"
-                )
+            raise HTTPException(
+                status_code=400, 
+                detail="You have already submitted this capstone"
+            )
         
         # Parse the document to extract metadata
         try:
@@ -71,6 +63,7 @@ def register_api_upload_capstone_route(app: FastAPI):
             project = Project(
                 sha256=file_hash,
                 filename=file.filename,
+                user_id=user_id,
                 title=entry.get("title"),
                 year=entry.get("year"),
                 abstract=entry.get("abstract"),
@@ -92,30 +85,20 @@ def register_api_upload_capstone_route(app: FastAPI):
                 )
                 db.add(author)
             
-            # Create submission with pending status
-            submission = Submission(
-                student_id=student_id,
-                project_id=project.id,
-                status="pending"
-            )
-            
-            db.add(submission)
             db.commit()
-            db.refresh(submission)
             db.refresh(project)
             
             return {
                 "message": "Capstone uploaded successfully and is pending review",
                 "status": "success",
                 "data": {
-                    "submission_id": submission.id,
                     "project_id": project.id,
                     "title": project.title,
                     "authors": [a.full_name for a in project.authors],
                     "year": project.year,
                     "abstract": project.abstract,
-                    "status": submission.status,
-                    "submitted_at": submission.submitted_at.isoformat()
+                    "status": project.status,
+                    "submitted_at": project.submitted_at.isoformat()
                 }
             }
             

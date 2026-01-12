@@ -41,7 +41,7 @@ def register_api_student_login_route(app: FastAPI):
             data={
                 "sub": student.email,
                 "role": "student",
-                "student_id": student.id,
+                "user_id": student.user_id,
                 "student_number": student.student_number
             },
             expires_delta=access_token_expires
