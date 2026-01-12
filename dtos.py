@@ -1,9 +1,62 @@
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 # ------------------------------
 # Pydantic schemas
 # ------------------------------
+
+# Student DTOs
+class StudentSignupRequest(BaseModel):
+    full_name: str
+    student_number: str
+    email: EmailStr
+    year: str  # Can include "Irregular"
+    password: str
+
+class StudentVerifyRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+    confirm_password: str
+
+class StudentResponse(BaseModel):
+    id: int
+    full_name: str
+    student_number: str
+    email: str
+    year: str
+    is_verified: bool
+    
+    class Config:
+        from_attributes = True
+
+class SubmissionCreate(BaseModel):
+    title: str
+    authors: str
+    adviser: Optional[str] = None
+    year: int
+
+class SubmissionResponse(BaseModel):
+    id: int
+    status: str
+    submitted_at: str
+    reviewed_at: Optional[str] = None
+    admin_notes: Optional[str] = None
+    project_id: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+class CitationRequest(BaseModel):
+    format: str  # APA, MLA, Chicago, IEEE
+
+# Existing DTOs
 class CapstoneCreate(BaseModel):
     title: str
     abstract: Optional[str] = None

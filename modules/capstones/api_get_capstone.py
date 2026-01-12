@@ -10,10 +10,10 @@ def register_api_get_capstone_route(app: FastAPI):
     @app.get("/api/capstones/{project_id}")
     def get_project(project_id: int, db: Session = Depends(get_db)):
         p = db.execute(
-            text("SELECT id, title, year, abstract, filename, sha256, course, host, doc_type, external_links FROM projects WHERE id=:pid"),
+            text("SELECT id, title, year, abstract, filename, sha256, course, host, doc_type, external_links FROM projects WHERE id=:pid AND status='approved'"),
             {"pid": project_id}
         ).fetchone()
-        if not p: raise HTTPException(404, "Not found")
+        if not p: raise HTTPException(404, "Not found or not approved")
         pid, title, year, abstract, filename, sha, course, host, doc_type, external_links = p
         authors = [r[0] for r in db.execute(text("SELECT full_name FROM authors WHERE project_id=:pid"), {"pid": pid}).fetchall()]
         sections = db.execute(

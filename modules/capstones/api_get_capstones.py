@@ -16,7 +16,7 @@ def register_api_get_capstones_route(app: FastAPI):
             sql = """
                 SELECT p.id, p.title, p.year, p.abstract, p.course, p.host, p.doc_type, p.external_links
                 FROM projects p JOIN projects_fts f ON f.project_id = p.id
-                WHERE projects_fts MATCH :q
+                WHERE projects_fts MATCH :q AND p.status = 'approved'
                         """
             rows = db.execute(
                 text(f"""{sql} ORDER BY bm25(projects_fts) LIMIT :lim OFFSET :off"""),
@@ -26,7 +26,7 @@ def register_api_get_capstones_route(app: FastAPI):
             total = db.execute(text(f"""SELECT COUNT(*) as total FROM ({sql}) x"""), {"q": q}).scalar_one()
         else:
             sql = """
-                SELECT id, title, year, abstract, course, host, doc_type, external_links FROM projects
+                SELECT id, title, year, abstract, course, host, doc_type, external_links FROM projects WHERE status = 'approved'
                 """
             rows = db.execute(
                 text(f"{sql} ORDER BY id DESC LIMIT :lim OFFSET :off"),

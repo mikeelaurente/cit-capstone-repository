@@ -3,6 +3,7 @@ uvicorn
 sqlalchemy
 alembic
 pydantic
+pydantic[email]
 sentence-transformers
 torch
 numpy
