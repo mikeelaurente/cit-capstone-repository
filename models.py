@@ -16,6 +16,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False)
     role = Column(String, default="Staff")
+    full_name = Column(String, nullable=True)
     
     student: Mapped[Optional["Student"]] = relationship(back_populates="user", uselist=False)
 
@@ -71,6 +72,8 @@ class Project(Base):
     course: Mapped[Optional[str]]   = mapped_column(String, nullable=True)
     host: Mapped[Optional[str]]     = mapped_column(String, nullable=True)
     doc_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    adviser: Mapped[Optional[str]]  = mapped_column(String, nullable=True)
 
     # Relationships
     uploaded_by: Mapped["User"] = relationship(foreign_keys=[user_id])
@@ -123,6 +126,16 @@ class Embedding(Base):
     chunk_id: Mapped[int] = mapped_column(ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True)
     vector: Mapped[bytes] = mapped_column(LargeBinary)
     chunk: Mapped[Chunk] = relationship(back_populates="embedding")
+
+
+class Analytics(Base):
+    __tablename__ = "analytics"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String, index=True)  # "search" or "view"
+    search_query: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Only for search events
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    project: Mapped[Project] = relationship()
     
 
 @event.listens_for(Base.metadata, "after_create")

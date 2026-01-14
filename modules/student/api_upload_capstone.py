@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request
 from sqlalchemy.orm import Session
 from db import get_db
-from models import Student, Project, Author
+from models import Student, Project, Author, ProjectKeyword
 from helpers.session import get_current_user_jwt
 from helpers.docx_parser import parse_compilation_docx
 from config import PathConfig
@@ -54,6 +54,21 @@ def register_api_upload_capstone_route(app: FastAPI):
             # Use the first entry
             entry = parsed_data[0]
             
+            # Generate hash based on title, authors, and abstract for deduplication
+            title = entry.get("title") or ""
+            authors = "|".join(entry.get("researchers", []))
+            abstract = (entry.get("abstract") or "")[:1000]
+            basis = title + "|" + authors + "|" + abstract
+            content_hash = hashlib.sha256(basis.encode()).hexdigest()
+            
+            # Check if this capstone already exists (by content, not file)
+            existing_project = db.query(Project).filter(Project.sha256 == content_hash).first()
+            if existing_project:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This capstone has already been submitted by another user"
+                )
+            
             # Save file
             file_path = PathConfig.UPLOAD_DIR / f"{file_hash}.docx"
             with open(file_path, "wb") as f:
@@ -61,7 +76,7 @@ def register_api_upload_capstone_route(app: FastAPI):
             
             # Create project (not yet visible to public - pending approval)
             project = Project(
-                sha256=file_hash,
+                sha256=content_hash,
                 filename=file.filename,
                 user_id=user_id,
                 title=entry.get("title"),
@@ -85,6 +100,15 @@ def register_api_upload_capstone_route(app: FastAPI):
                 )
                 db.add(author)
             
+            # Add keywords
+            keywords = entry.get("keywords", [])
+            for keyword_text in keywords:
+                keyword = ProjectKeyword(
+                    project_id=project.id,
+                    keyword=keyword_text
+                )
+                db.add(keyword)
+            
             db.commit()
             db.refresh(project)
             
@@ -95,6 +119,7 @@ def register_api_upload_capstone_route(app: FastAPI):
                     "project_id": project.id,
                     "title": project.title,
                     "authors": [a.full_name for a in project.authors],
+                    "keywords": [k.keyword for k in project.keywords],
                     "year": project.year,
                     "abstract": project.abstract,
                     "status": project.status,

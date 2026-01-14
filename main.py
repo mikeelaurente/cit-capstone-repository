@@ -11,6 +11,7 @@ from modules.auth import configure_auth_module
 from modules.capstones import configure_capstone_module
 from modules.home import configure_home_module
 from modules.student import configure_student_module
+from modules.statistics import configure_statistics_module
 
 PathConfig.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PathConfig.TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
@@ -45,4 +46,5 @@ configure_auth_module(app)
 configure_admin_users_module(app)
 configure_admin_capstone_module(app)
 configure_student_module(app)
+configure_statistics_module(app)
 

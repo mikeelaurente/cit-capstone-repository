@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from db import get_db, delete_fts_row, insert_fts_row
 from models import Project, Author, ProjectKeyword, Section, Chunk, Embedding
 from helpers.session import get_current_user_jwt
@@ -28,15 +29,19 @@ class EditCapstoneRequest(BaseModel):
     title: Optional[str] = None
     abstract: Optional[str] = None
     year: Optional[int] = None
-    authors: Optional[str] = None
+    authors: Optional[List[str]] = None
     keywords: Optional[List[str]] = None
+    category: Optional[str] = None
+    adviser: Optional[str] = None
 
 class ManualCapstoneUploadRequest(BaseModel):
     title: str
-    authors: str  # Comma-separated
+    authors: List[str]  # List of author names
     keywords: List[str]
     year: int
     abstract: Optional[str] = None
+    category: Optional[str] = None
+    adviser: Optional[str] = None
 
 def regenerate_project_embeddings(db: Session, project: Project):
     """Regenerate embeddings for a project using its current model fields (not file-based)"""
@@ -76,19 +81,44 @@ def register_api_admin_capstones_route(app: FastAPI):
     @app.get("/api/admin/capstones")
     def list_all_capstones(
         status: Optional[str] = None,  # Filter by status: pending, approved, rejected
+        search: Optional[str] = None,  # Search in title, abstract, or author names
+        page: int = 1,  # Page number (1-indexed)
+        limit: int = 10,  # Items per page
         db: Session = Depends(get_db),
         claims = Depends(get_current_user_jwt)
     ):
-        """List all capstones (Admin/Staff) with optional status filter"""
+        """List all capstones (Admin/Staff) with pagination and search"""
         if not claims or claims.get("role") not in ["Admin", "Staff"]:
             raise HTTPException(status_code=403, detail="Admin or Staff access required")
         
+        # Validate pagination parameters
+        if page < 1:
+            raise HTTPException(status_code=400, detail="Page must be >= 1")
+        if limit < 1 or limit > 100:
+            raise HTTPException(status_code=400, detail="Limit must be between 1 and 100")
+        
         query = db.query(Project)
         
-        if status:
+        if status and status.lower() in ["pending", "approved", "rejected"]:
             query = query.filter(Project.status == status.lower())
         
-        projects = query.order_by(Project.created_at.desc()).all()
+        # Apply search filter if provided
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                or_(
+                    Project.title.ilike(search_term),
+                    Project.abstract.ilike(search_term),
+                    Project.authors.any(Author.full_name.ilike(search_term))
+                )
+            )
+        
+        # Get total count before pagination
+        total = query.count()
+        
+        # Apply pagination
+        offset = (page - 1) * limit
+        projects = query.order_by(Project.created_at.desc()).offset(offset).limit(limit).all()
         
         result = []
         for project in projects:
@@ -99,15 +129,28 @@ def register_api_admin_capstones_route(app: FastAPI):
                 "abstract": project.abstract[:100] + "..." if project.abstract and len(project.abstract) > 100 else project.abstract,
                 "status": project.status,
                 "authors": [a.full_name for a in project.authors],
+                "keywords": [k.keyword for k in project.keywords],
+                "category": project.category,
+                "adviser": project.adviser,
                 "created_at": project.created_at.isoformat(),
                 "course": project.course,
                 "host": project.host,
                 "doc_type": project.doc_type
             })
         
+        # Calculate pagination metadata
+        total_pages = (total + limit - 1) // limit  # Ceiling division
+        
         return {
             "status": "success",
-            "total": len(result),
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1
+            },
             "capstones": result
         }
     
@@ -210,7 +253,7 @@ def register_api_admin_capstones_route(app: FastAPI):
         
         # Generate hash using the same mechanism: title + authors + abstract
         title = request.title or ""
-        authors = "|".join(request.authors.split(","))
+        authors = "|".join(request.authors)
         abstract = (request.abstract or "")[:1000]
         basis = title + "|" + authors + "|" + abstract
         entry_hash = hashlib.sha256(basis.encode()).hexdigest()
@@ -227,6 +270,8 @@ def register_api_admin_capstones_route(app: FastAPI):
             title=request.title,
             year=request.year,
             abstract=request.abstract,
+            category=request.category,
+            adviser=request.adviser,
             status="pending"
         )
         
@@ -234,9 +279,14 @@ def register_api_admin_capstones_route(app: FastAPI):
         db.flush()
         
         # Add authors
-        for author_name in request.authors.split(","):
-            author = Author(project_id=project.id, full_name=author_name.strip())
+        for author_name in request.authors:
+            author = Author(project_id=project.id, full_name=author_name)
             db.add(author)
+        
+        # Add keywords
+        for keyword in request.keywords:
+            kw = ProjectKeyword(project_id=project.id, keyword=keyword)
+            db.add(kw)
         
         db.commit()
         db.refresh(project)
@@ -248,6 +298,8 @@ def register_api_admin_capstones_route(app: FastAPI):
                 "project_id": project.id,
                 "title": project.title,
                 "authors": [a.full_name for a in project.authors],
+                "keywords": [k.keyword for k in project.keywords],
+                "category": project.category,
                 "status": project.status
             }
         }
@@ -301,6 +353,9 @@ def register_api_admin_capstones_route(app: FastAPI):
         project.reviewed_at = datetime.utcnow()
         if request.note:
             project.admin_notes = request.note
+            
+        if request.category is not None:
+            project.category = request.category
         
         # Update keywords if provided
         if request.keywords:
@@ -449,12 +504,16 @@ def register_api_admin_capstones_route(app: FastAPI):
             project.abstract = request.abstract
         if request.year:
             project.year = request.year
+        if request.category is not None:
+            project.category = request.category
+        if request.adviser is not None:
+            project.adviser = request.adviser
         
         # Update authors if provided
         if request.authors:
             db.query(Author).filter(Author.project_id == project.id).delete()
-            for author_name in request.authors.split(","):
-                author = Author(project_id=project.id, full_name=author_name.strip())
+            for author_name in request.authors:
+                author = Author(project_id=project.id, full_name=author_name)
                 db.add(author)
         
         # Update keywords if provided
@@ -479,6 +538,7 @@ def register_api_admin_capstones_route(app: FastAPI):
                 "project_id": project.id,
                 "title": project.title,
                 "authors": [a.full_name for a in project.authors],
+                "keywords": [k.keyword for k in project.keywords],
                 "embeddings_updated": embeddings_updated
             }
         }

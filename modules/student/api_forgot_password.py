@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
 from db import get_db
@@ -36,8 +37,9 @@ def register_api_forgot_password_route(app: FastAPI):
         db.add(password_reset)
         db.commit()
         
+        base_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
         # Send email with reset link
-        send_password_reset_email(request.email, token)
+        send_password_reset_email(request.email, token, base_url)
         
         return {
             "message": "If the email exists, a password reset link has been sent.",

@@ -3,8 +3,10 @@ from fastapi.params import Depends
 from sqlalchemy.orm import Session
 from db import get_db
 from dtos import ProjectOut
+from models import Analytics
 from sqlalchemy import text
 from http.client import HTTPException
+from datetime import datetime
 
 def register_api_get_capstone_route(app: FastAPI):
     @app.get("/api/capstones/{project_id}")
@@ -21,6 +23,20 @@ def register_api_get_capstone_route(app: FastAPI):
             {"pid": pid}
         ).fetchall()
         keywords = [r[0] for r in db.execute(text("SELECT keyword FROM project_keywords WHERE project_id=:pid"), {"pid": pid}).fetchall()]
+        
+        # Record view analytics
+        try:
+            analytics = Analytics(
+                project_id=pid,
+                event_type="view",
+                created_at=datetime.utcnow()
+            )
+            db.add(analytics)
+            db.commit()
+        except Exception as e:
+            # Don't fail the request if analytics recording fails
+            db.rollback()
+        
         return {
             "id": pid, "title": title, "year": year, "abstract": abstract, "external_links": external_links,
             "authors": authors, "sections": [{"heading": h, "content": c, "order": o} for (h,c,o) in sections],

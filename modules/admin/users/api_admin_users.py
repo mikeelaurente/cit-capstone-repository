@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from db import get_db
@@ -25,21 +25,54 @@ def register_api_admin_users_route(app: FastAPI):
     
     @app.get("/api/admin/users")
     def list_users(
+        page: int = Query(default=1, ge=1),
+        limit: int = Query(default=10, ge=1, le=100),
+        role: str = Query(default="All"),
+        search: Optional[str] = Query(default=None),
         db: Session = Depends(get_db),
         claims = Depends(get_current_user_jwt)
     ):
-        """List all users (Admin only) - includes student info if role is Student"""
+        """List all users (Admin only) with pagination, role filter, and search - includes student info if role is Student"""
         if not claims or claims.get("role") != "Admin":
             raise HTTPException(status_code=403, detail="Admin access required")
         
-        # Eager load student relationship to avoid N+1 queries
-        users = db.query(User).options(selectinload(User.student)).all()
+        # Validate pagination parameters
+        if page < 1:
+            raise HTTPException(status_code=400, detail="Page must be >= 1")
+        if limit < 1 or limit > 100:
+            raise HTTPException(status_code=400, detail="Limit must be between 1 and 100")
+        
+        # Validate role filter
+        valid_roles = ["All", "Admin", "Staff", "Student"]
+        if role not in valid_roles:
+            raise HTTPException(status_code=400, detail=f"Role must be one of: {', '.join(valid_roles)}")
+        
+        # Build query
+        query = db.query(User)
+        
+        # Apply role filter
+        if role != "All":
+            query = query.filter(User.role == role)
+        
+        # Apply search filter if provided
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                (User.email.ilike(search_term)) | (User.full_name.ilike(search_term))
+            )
+        
+        # Get total count
+        total = query.count()
+        
+        # Eager load student relationship to avoid N+1 queries and apply pagination
+        users = query.options(selectinload(User.student)).offset((page - 1) * limit).limit(limit).all()
         
         result = []
         for u in users:
             user_data = {
                 "id": u.id,
                 "email": u.email,
+                "full_name": u.full_name,
                 "role": u.role,
                 "status": "Active"  # Can be extended with actual status field
             }
@@ -58,9 +91,23 @@ def register_api_admin_users_route(app: FastAPI):
             
             result.append(user_data)
         
+        # Calculate pagination metadata
+        total_pages = (total + limit - 1) // limit  # Ceiling division
+        
         return {
             "status": "success",
-            "total": len(result),
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1
+            },
+            "filter": {
+                "role": role,
+                "search": search
+            },
             "users": result
         }
     
@@ -96,7 +143,8 @@ def register_api_admin_users_route(app: FastAPI):
         new_user = User(
             email=request.email,
             password=hashed_password,
-            role=request.role
+            role=request.role,
+            full_name=request.full_name
         )
         
         db.add(new_user)
@@ -109,6 +157,7 @@ def register_api_admin_users_route(app: FastAPI):
             "data": {
                 "id": new_user.id,
                 "email": new_user.email,
+                "full_name": new_user.full_name,
                 "role": new_user.role,
                 "account_status": "Inactive"  # Requires verification
             }
@@ -159,12 +208,14 @@ def register_api_admin_users_route(app: FastAPI):
             if len(request.password) < 8:
                 raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
             user.password = hash_password(request.password)
-            
-        # Update full_name if provided (for reference)
+        
+        # Update full_name if provided
         if request.full_name:
             if user.role == "Student" and user.student:
                 user.student.full_name = request.full_name
-        
+            else:
+                user.full_name = request.full_name
+            
         db.commit()
         db.refresh(user)
         
@@ -174,6 +225,7 @@ def register_api_admin_users_route(app: FastAPI):
             "data": {
                 "id": user.id,
                 "email": user.email,
+                "full_name": user.full_name,
                 "role": user.role
             }
         }

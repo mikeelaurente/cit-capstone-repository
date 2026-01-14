@@ -63,7 +63,7 @@ def send_verification_email(to_email: str, code: str) -> bool:
         print(f"Error sending email: {e}")
         return False
 
-def send_password_reset_email(to_email: str, token: str, base_url: str = "http://localhost:8000") -> bool:
+def send_password_reset_email(to_email: str, token: str, base_url: str = "http://localhost:5173") -> bool:
     """
     Send password reset email with link.
     Note: For production, configure SMTP settings.

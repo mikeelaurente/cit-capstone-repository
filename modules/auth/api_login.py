@@ -42,11 +42,8 @@ def admin_login(db: Session, identifier: str, password: str, login_type: str = "
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
     # Validate user role matches login type
-    if login_type == "admin" and user.role != "Admin":
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    elif login_type == "staff" and user.role != "Staff":
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
+    if login_type == "admin" and user.role not in ["Admin", "Staff"]:
+        raise HTTPException(status_code=403, detail="User is not an admin")
     access_token_expires = timedelta(minutes=AuthConfig.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.email, "role": user.role, "user_id": user.id},
@@ -63,7 +60,7 @@ def admin_login(db: Session, identifier: str, password: str, login_type: str = "
             "user": {
                 "id": user.id,
                 "email": user.email,
-                "role": user.role
+                "role": user.role.lower()
             }
         }
     }
@@ -84,6 +81,9 @@ def student_login(db: Session, identifier: str, password: str):
     
     if not student:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if not student.user:
+        raise HTTPException(status_code=500, detail="Associated user account not found")
     
     # Verify password from User table
     if not verify_password(password, student.user.password):
@@ -115,7 +115,7 @@ def student_login(db: Session, identifier: str, password: str):
             "access_token": access_token,
             "token_type": "bearer",
             "expires_in": access_token_expires.total_seconds(),
-            "student": {
+            "user": {
                 "id": student.id,
                 "full_name": student.full_name,
                 "student_number": student.student_number,

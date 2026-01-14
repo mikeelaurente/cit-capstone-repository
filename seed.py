@@ -16,6 +16,7 @@ def seed_default_users():
         if not db.query(User).filter(User.email == "admin@cit.edu").first():
             admin_user = User(
                 email="admin@cit.edu",
+                full_name="Administrator",
                 password=get_password_hash("admin123"),
                 role="Admin",
             )
@@ -24,6 +25,7 @@ def seed_default_users():
         if not db.query(User).filter(User.email == "staff@cit.edu").first():
             staff_user = User(
                 email="staff@cit.edu",
+                full_name="Staff Member",
                 password=get_password_hash("staff123"),
                 role="Staff",
             )

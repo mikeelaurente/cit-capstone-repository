@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from db import get_db
 from dtos import PaginatedProjectOutput, ProjectOut
+from models import Analytics
 from sqlalchemy import text
+from datetime import datetime
 
 def register_api_get_capstones_route(app: FastAPI):
     @app.get("/api/capstones", response_model=PaginatedProjectOutput)
@@ -41,6 +43,27 @@ def register_api_get_capstones_route(app: FastAPI):
             keywords = [r[0] for r in db.execute(text("SELECT keyword FROM project_keywords WHERE project_id=:pid"), {"pid": pid}).fetchall()]
             out.append(ProjectOut(id=pid, title=title, year=year, abstract=abstract, authors=authors,
                                 course=course, host=host, doc_type=doc_type, keywords=keywords, external_links=external_links))
+            
+            # Record search analytics only if search query is provided
+            if q:
+                try:
+                    analytics = Analytics(
+                        project_id=pid,
+                        event_type="search",
+                        search_query=q,
+                        created_at=datetime.utcnow()
+                    )
+                    db.add(analytics)
+                except Exception as e:
+                    # Don't fail the request if analytics recording fails
+                    pass
+        
+        # Commit analytics records
+        if q:
+            try:
+                db.commit()
+            except Exception as e:
+                db.rollback()
 
         print(f"q: {q} | per_page: {per_page} | offset: {offset} | page: {page}")
         
